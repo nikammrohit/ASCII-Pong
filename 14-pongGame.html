@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pong Game</title>
+  <style>
+    body {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            background-color: black;
+            font-family: monospace;
+            color: #4aa380;
+        }
+        #game-container {
+            position: relative;
+            margin: 20px;
+        }
+        #game {
+            white-space: pre;
+            font-size: 16px;
+            line-height: 1;
+            background-color: black;
+            padding: 10px;
+            border: 1px solid #4aa380;
+            box-shadow: 0 0 10px #4aa380;
+        }
+        .score {
+            display: flex;
+            justify-content: space-between;
+            width: 100%;
+            margin-bottom: 10px;
+            font-size: 18px;
+        }
+        .controls {
+            margin-top: 20px;
+            text-align: center;
+        }
+        button {
+            background-color: black;
+            color: #4aa380;
+            border: 1px solid #4aa380;
+            padding: 5px 10px;
+            margin: 0 5px;
+            cursor: pointer;
+            font-family: monospace;
+        }
+        button:hover {
+            background-color: #4aa380;
+            color: black;
+        }
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: rgba(0, 0, 0, 0.8);
+            padding: 20px;
+            border: 1px solid #4aa380;
+            text-align: center;
+            display: none;
+        }
+  </style>
+</head>
+<body>
+  <h1>ASCII Pong</h1>
+    <div class="gameContainer">
+        <div class="score">
+            <span>Player: <span id="playerScore">0</span></span>
+            <span>CPU: <span id="cpuScore">0</span></span>
+        </div>
+
+        <pre id="game"></pre> <!--formatted text to display gmae board-->
+
+        <div class="gameOver" id="gameOver">
+            <h2 id="winnerText"></h2>
+            <button onclick="resetGame()">Play Again</button>
+        </div>
+    </div>
+
+    <div class="controls">
+        <p>Use 'W' and 'S' keys or buttons below to move your paddle</p>
+        <button id="upButton">Up (W)</button>
+        <button id="downButton">Down (S)</button>
+        <button id="startButton">Start/Pause</button>
+    </div>
+
+  <script>
+    //constants
+    const WIDTH = 60;
+    const HEIGHT = 30;
+    const PADDLE_HEIGHT = 5;
+    const WINNING_SCORE = 5; //score needed to win
+
+    //game variables
+    //position
+    let playerY = Math.floor(HEIGHT / 2) - Math.floor(PADDLE_HEIGHT / 2); //puts player paddle in middle of screen
+    let cpuY = Math.floor(HEIGHT / 2) - Math.floor(PADDLE_HEIGHT / 2);
+    let ballY = Math.floor(HEIGHT / 2);
+    let ballX = Math.floor(HEIGHT / 2);
+    //speed
+    let ballDY = 0.5; //velocity (speed and direction) of ball moving up/down (positive = down)
+    let ballDX = 1; //speed of ball moving right/left (positive = right)
+    //score
+    let playerScore = 0;
+    let cpuScore = 0;
+
+    let isRunning = false; //flag to see if game is running
+    let gameInterval; //ensures game updates constantly (refresh rate)
+    let difficulty = 0.7; //responsiveness of the cpu
+
+    //DOM elements - HTML which will be manipulated
+    const gameElement = document.getElementById('game'); //alters <pre> game board  
+    const playerScoreElement = document.getElementById('playerScore'); //player score display
+    const cpuScoreElement = document.getElementById('cpuScore'); //cpu score display
+    const gameOverElement = document.getElementById('gameOver'); //game over overlay
+    const winnerTextElement = document.getElementById('winnerText'); //winner text element
+    const upButton = document.getElementById('upButton'); //up button
+    const downButton = document.getElementById('downButton'); //down button
+    const startButton = document.getElementById('startButton'); //start/stop button
+
+    //event listener for keyboard input
+    document.addEventListener('keydown', (e) => { //listen for keydown and store information about even in 'e'
+        if (e.key.toLowerCase() === 'w') { //check if 'w' was pressed
+            movePlayerPaddle(-1); //move paddle up (negative)
+        } else if (e.key.toLowerCase() === 's') { //otherwise check if 's' was pressed
+            movePlayerPaddle(1); //move paddle down (positive)
+        } else if (e.key === ' ' || e.key.toLowerCase() === 'p') { //check if space or 'p' is pressed to pause game
+            toggleGame(); //toggle between running and paused
+        }
+    });
+
+    //event listener for button clicks
+    upButton.addEventListener('mousedown', () => movePlayerPaddle(-1)); //move paddle up when up button held (this event listener refers to js variable which refers to the html element) (use arrow function since we need to pass parameter)
+    downButton.addEventListener('mousedown', () => movePlayerPaddle(1)); //move paddle down (positive) when down button held (use arrow function since we need to pass parameter)
+    startButton.addEventListener('click', toggleGame); //start/pause game when button is clicked. we run 'toggleGame' rather than 'toggleGame()' as the latter would cause the func to run as soon as the page loads (we DONT use arrow function since we ARE NOT passing a parameter in)
+
+    //game function
+    //move player paddles
+    function movePlayerPaddle(direction) {
+        playerY = Math.max(1, Math.min(HEIGHT - PADDLE_HEIGHT - 1, playerY + direction)); //updates position of paddle to ensure it stays within bounds
+        render(); //redraw game board
+    }
+
+    //control CPU paddle movement
+    function moveCpuPaddle() {
+        if (Math.random() < difficulty) { //create randomness within paddle movement depending on difficulty 
+            const cpuPaddleCenter = cpuY + Math.floor(PADDLE_HEIGHT / 2); //calc center of cpu paddle
+            if (ballY < cpuPaddleCenter && cpuY > 1) { //if ball above paddle and paddle is not at top
+                cpuY--;//move paddle up
+            } else if (ballY > cpuPaddleCenter && cpuY < HEIGHT - PADDLE_HEIGHT - 1) { //if ball below paddle and paddle not at bottom
+                cpuY++;//move paddle down
+            }
+        }
+    }
+
+    function updateBall() { //update ball position and handle collisions
+        ballX += ballDX; //move ball position based on horizontal velocity
+        ballY += ballDY;
+
+        //collision between top and bottom wall (x and y gets more positive as it goes down and ->)
+        if (ballY <= 0 || ballY >= HEIGHT - 1) {
+            ballDY = - ballDY; //reverse velocity
+        }
+
+        //collision between paddles
+        if (ballX < 1 && ballY >= playerY && ballY < playerY + PADDLE_HEIGHT) {
+            ballDX = -ballDX //reverse velocity
+            //adjust vertical velocity for physics simulation
+            ballDY = (ballY - (playerY + PADDLE_HEIGHT / 2)) * 0.3;
+
+
+        //from here i copy and pasted from claude
+        } else if (ballX >= WIDTH - 2 && ballY >= cpuY && ballY < cpuY + PADDLE_HEIGHT) { // Checks if ball hits CPU paddle
+            ballDX = -ballDX; // Reverses horizontal velocity to bounce
+            // Adjust vertical speed based on where ball hits paddle for more realistic physics
+            ballDY = (ballY - (cpuY + PADDLE_HEIGHT / 2)) * 0.3; // Ball direction changes based on where it hits paddle
+        }
+        
+        // Score points when ball passes paddles
+        if (ballX < 0) { // Ball passed player's paddle (left side)
+            // CPU scores
+            cpuScore++; // Increment CPU score
+            cpuScoreElement.textContent = cpuScore; // Update CPU score display
+            resetBall(); // Reset ball position
+            if (cpuScore >= WINNING_SCORE) { // Check if CPU reached winning score
+                endGame("CPU Wins!"); // End game with CPU as winner
+            }
+        } else if (ballX >= WIDTH) { // Ball passed CPU's paddle (right side)
+            // Player scores
+            playerScore++; // Increment player score
+            playerScoreElement.textContent = playerScore; // Update player score display
+            resetBall(); // Reset ball position
+            if (playerScore >= WINNING_SCORE) { // Check if player reached winning score
+                endGame("Player Wins!"); // End game with player as winner
+            }
+        }
+    }
+
+    function resetBall() { // Function to reset ball to center with random direction
+        ballX = Math.floor(WIDTH / 2); // Reset horizontal position to center
+        ballY = Math.floor(HEIGHT / 2); // Reset vertical position to center
+        ballDX = Math.random() > 0.5 ? 1 : -1; // Randomize horizontal direction (50% chance either way)
+        ballDY = (Math.random() - 0.5) * 1; // Randomize vertical direction and speed
+    }
+    
+    function render() { // Function to draw the game board with ASCII characters
+        let gameBoard = ''; // Initialize empty string to build game board
+        
+        // Create the game board with ASCII characters - iterate through each position
+        for (let y = 0; y < HEIGHT; y++) { // Loop through each row
+            for (let x = 0; x < WIDTH; x++) { // Loop through each column in current row
+                // Draw walls at top and bottom
+                if (y === 0 || y === HEIGHT - 1) { // Checks if current position is at top or bottom edge
+                    gameBoard += '-'; // Adds horizontal line character for walls
+                } 
+                // Draw player paddle on left side
+                else if (x === 1 && y >= playerY && y < playerY + PADDLE_HEIGHT) { // Checks if position is where player paddle should be
+                    gameBoard += '|'; // Adds vertical line character for paddle
+                } 
+                // Draw CPU paddle on right side
+                else if (x === WIDTH - 2 && y >= cpuY && y < cpuY + PADDLE_HEIGHT) { // Checks if position is where CPU paddle should be
+                    gameBoard += '|'; // Adds vertical line character for paddle
+                } 
+                // Draw the ball
+                else if (Math.round(x) === Math.round(ballX) && Math.round(y) === Math.round(ballY)) { // Checks if position matches rounded ball coordinates
+                    gameBoard += 'O'; // Adds circle character for ball
+                } 
+                // Draw center line
+                else if (x === Math.floor(WIDTH / 2)) { // Checks if position is at center of board horizontally
+                    gameBoard += y % 2 === 0 ? '|' : ' '; // Creates dashed center line with alternating characters
+                } 
+                // Draw empty space
+                else {
+                    gameBoard += ' '; // Adds space for empty area
+                }
+            }
+            gameBoard += '\n'; // Adds newline character at end of each row
+        }
+        
+        gameElement.textContent = gameBoard; // Updates the game element with the complete ASCII art
+    }
+    
+    function update() { // Main game loop function called at regular intervals
+        moveCpuPaddle(); // Update CPU paddle position
+        updateBall(); // Update ball position and handle collisions
+        render(); // Redraw the game board
+    }
+    
+    function toggleGame() { // Function to start or pause the game
+        if (isRunning) { // If game is currently running
+            clearInterval(gameInterval); // Stop the game loop
+            startButton.textContent = "Resume"; // Change button text to Resume
+        } else { // If game is currently paused
+            gameInterval = setInterval(update, 100); // Start game loop at 10 frames per second
+            startButton.textContent = "Pause"; // Change button text to Pause
+        }
+        isRunning = !isRunning; // Toggle game state flag
+    }
+    
+    function endGame(message) { // Function to end the game and show winner
+        clearInterval(gameInterval); // Stop the game loop
+        isRunning = false; // Set game state to not running
+        winnerTextElement.textContent = message; // Display winner message
+        gameOverElement.style.display = 'block'; // Show game over overlay
+    }
+    
+    function resetGame() { // Function to reset the game state
+        playerY = Math.floor(HEIGHT / 2) - Math.floor(PADDLE_HEIGHT / 2); // Reset player paddle to center
+        cpuY = Math.floor(HEIGHT / 2) - Math.floor(PADDLE_HEIGHT / 2); // Reset CPU paddle to center
+        resetBall(); // Reset ball position and direction
+        playerScore = 0; // Reset player score
+        cpuScore = 0; // Reset CPU score
+        playerScoreElement.textContent = playerScore; // Update player score display
+        cpuScoreElement.textContent = cpuScore; // Update CPU score display
+        gameOverElement.style.display = 'none'; // Hide game over overlay
+        startButton.textContent = "Start"; // Set button text to Start
+        render(); // Draw initial game state
+    }
+    
+    // Initialize the game on page load
+    resetGame(); // Set up initial game state
+
+  </script>
+</body>
+</html>
